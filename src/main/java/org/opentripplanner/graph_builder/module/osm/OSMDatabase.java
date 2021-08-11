@@ -715,16 +715,76 @@ public class OSMDatabase {
       OSMLevel level = OSMLevel.DEFAULT;
       if (way.hasTag("level")) { // TODO: floating-point levels &c.
         levelName = way.getTag("level");
-        level = OSMLevel.fromString(levelName, OSMLevel.Source.LEVEL_TAG, noZeroLevels, issueStore);
+        List<String> osmLevels = new ArrayList<>();
+        Collections.addAll(osmLevels, levelName.split(";"));
+        // if we have an actual way and more than one level (e.g. stair), then assume the 
+        // first level and set the nodes with differing levels as elevators
+        if (way instanceof OSMWay && osmLevels.size() > 1) {
+          OSMWay osmWay = (OSMWay) way;
+          String chosenLevel = osmLevels.get(0);
+          markNodesAsElevator(chosenLevel, osmWay.getNodeRefs());
+          level = OSMLevel.fromString(chosenLevel, OSMLevel.Source.LEVEL_TAG, noZeroLevels,
+                  issueStore
+          );
+        } else {
+          level = OSMLevel.fromString(levelName, OSMLevel.Source.LEVEL_TAG, noZeroLevels,
+                  issueStore
+          );
+        }
       } else if (way.hasTag("layer")) {
         levelName = way.getTag("layer");
-        level = OSMLevel.fromString(levelName, OSMLevel.Source.LAYER_TAG, noZeroLevels, issueStore);
+        List<String> osmLevels = new ArrayList<>();
+        Collections.addAll(osmLevels, levelName.split(";"));
+        // if we have an actual way and more than one layer (e.g. stair), then assume the 
+        // first layer and set the nodes with differing levels as elevators
+        if (way instanceof OSMWay && osmLevels.size() > 1) {
+          OSMWay osmWay = (OSMWay) way;
+          String chosenLevel = osmLevels.get(0);
+          markNodesAsElevator(chosenLevel, osmWay.getNodeRefs());
+          level = OSMLevel.fromString(chosenLevel, OSMLevel.Source.LAYER_TAG, noZeroLevels,
+                  issueStore
+          );
+        } else {
+          level = OSMLevel.fromString(levelName, OSMLevel.Source.LAYER_TAG, noZeroLevels,
+                  issueStore
+          );
+        }
       }
       if (level == null || (!level.reliable)) {
         issueStore.add(new LevelAmbiguous(levelName, way.getId()));
         level = OSMLevel.DEFAULT;
       }
       wayLevels.put(way, level);
+    }
+  }
+
+  /**
+   * Marks nodes as elevators if their level doesn't match the chosen level of the way.
+   * 
+   * This ensures that a stair connecting two levels doesn't create a non-routable situation.
+   * The method doesn't do anything if the connected nodes have no level tag.
+   * 
+   * Example:
+   * <pre>
+   * ---- node at layer 0 .
+   *                       \ stair with levels 0;-1
+   *                        . node at layer -1 
+   * </pre>
+   * becomes:
+   * <pre>
+   * ---- node at layer 0 . - way with level 0 - . node at layer -1 with tag elevator
+   * </pre>
+   * @param wayLevel chosen level of a multi-level way
+   * @param nodeIds list of nodeIds connected with way
+   */
+  private void markNodesAsElevator(String wayLevel, TLongList nodeIds) {
+    for (int i = 0; i < nodeIds.size(); i++) {
+      long nodeId = nodeIds.get(i);
+      OSMNode node = this.getNode(nodeId);
+      String level = node.getTag("level");
+      if (level != null && !level.equals(wayLevel)) {
+          node.addTag("highway", "elevator");
+      }
     }
   }
 
