@@ -118,6 +118,9 @@ public class OSMDatabase {
    */
   private final Map<OSMWithTags, Set<OSMNode>> stopsInAreas = new HashMap<>();
 
+  // set of all nodes that should be treated as elevators
+  private final Map<Long, String> elevatorNodesToWayLevel = new HashMap<>();
+
   /*
    * ID of the next virtual node we create during building phase. Negative to prevent conflicts
    * with existing ones.
@@ -243,6 +246,14 @@ public class OSMDatabase {
       return;
     }
     nodesById.put(node.getId(), node);
+
+    // the current node was marked as a potential virtual elevator
+    if (elevatorNodesToWayLevel.containsKey(node.getId())) {
+      String level = node.getTag("level");
+      if (level != null && !level.equals(elevatorNodesToWayLevel.get(node.getId()))) {
+          node.addTag("highway", "elevator");
+      }
+    }
   }
 
   public void addWay(OSMWay way) {
@@ -722,7 +733,7 @@ public class OSMDatabase {
         if (way instanceof OSMWay && osmLevels.size() > 1) {
           OSMWay osmWay = (OSMWay) way;
           String chosenLevel = osmLevels.get(0);
-          markNodesAsElevator(chosenLevel, osmWay.getNodeRefs());
+          markNodesAsVirtualElevator(chosenLevel, osmWay.getNodeRefs());
           level = OSMLevel.fromString(chosenLevel, OSMLevel.Source.LEVEL_TAG, noZeroLevels,
                   issueStore
           );
@@ -740,7 +751,7 @@ public class OSMDatabase {
         if (way instanceof OSMWay && osmLevels.size() > 1) {
           OSMWay osmWay = (OSMWay) way;
           String chosenLevel = osmLevels.get(0);
-          markNodesAsElevator(chosenLevel, osmWay.getNodeRefs());
+          markNodesAsVirtualElevator(chosenLevel, osmWay.getNodeRefs());
           level = OSMLevel.fromString(chosenLevel, OSMLevel.Source.LAYER_TAG, noZeroLevels,
                   issueStore
           );
@@ -758,11 +769,12 @@ public class OSMDatabase {
     }
   }
 
+
   /**
-   * Marks nodes as elevators if their level doesn't match the chosen level of the way.
+   * Marks nodes as virtual elevators if their level doesn't match the chosen level of the way.
    * 
    * This ensures that a stair connecting two levels doesn't create a non-routable situation.
-   * The method doesn't do anything if the connected nodes have no level tag.
+   * The method itself doesn't tag the nodes yet as they are not yet added to the database.
    * 
    * Example:
    * <pre>
@@ -774,17 +786,13 @@ public class OSMDatabase {
    * <pre>
    * ---- node at layer 0 . - way with level 0 - . node at layer -1 with tag elevator
    * </pre>
-   * @param wayLevel chosen level of a multi-level way
+   * @param chosenWayLevel chosen level for way
    * @param nodeIds list of nodeIds connected with way
    */
-  private void markNodesAsElevator(String wayLevel, TLongList nodeIds) {
+  private void markNodesAsVirtualElevator(String chosenWayLevel, TLongList nodeIds) {
     for (int i = 0; i < nodeIds.size(); i++) {
       long nodeId = nodeIds.get(i);
-      OSMNode node = this.getNode(nodeId);
-      String level = node.getTag("level");
-      if (level != null && !level.equals(wayLevel)) {
-          node.addTag("highway", "elevator");
-      }
+      this.elevatorNodesToWayLevel.put(nodeId, chosenWayLevel);
     }
   }
 
